@@ -59,4 +59,20 @@ shinyUI(fluidPage(
 			),
 		mainPanel(
 			plotOutput("plot"),
-			tableOutput("table")))))
+			tableOutput("table"))),
+	em("Investing entails some degree of risk.  Investors should learn the risks
+		 involved before engaging in any investment.  Investr provides general
+		 information, not individually targeted personalized advice.  Some
+		 investment strategies may not be suitable for you.  We recommend you seek
+		 independent professional legal, tax, and investment advice before engaging
+		 in any investment.  Information and advice provided by Investr should not
+		 be construed as an offer to sell, a solicitation of an offer to buy, or a
+		 recommendation for any investment."),
+	br(),
+	br(),
+	em("Past performance does not necessarily predict future returns.  We
+		 expressly deny any liability to you for loss in any manner or form now or
+		 at any time in the future.  Investr endeavours to ensure the accuracy and
+		 reliability of the information provided, but does not accept any liability
+		 whatsoever, whether in tort or contract or otherwise, for any loss or
+		 damage arising from the use of this software.")))
