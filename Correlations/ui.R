@@ -41,6 +41,7 @@ shinyUI(fluidPage(
 			textInput("custom", "Custom Ticker")),
 		mainPanel(
 			div(
+				conditionalPanel("!output.plot", p("Loading data, please wait...")),
 				plotOutput("plot", height="500px"),
 				plotOutput("legend", height="150px"),
 				style="width: 800px; margin: 0px auto;")

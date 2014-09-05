@@ -58,6 +58,7 @@ shinyUI(fluidPage(
 			checkboxInput("rebalance", "Rebalance yearly", value=TRUE)
 			),
 		mainPanel(
+			conditionalPanel("!output.plot", p("Loading data, please wait...")),
 			plotOutput("plot"),
 			tableOutput("table"))),
 	em("Investing entails some degree of risk.  Investors should learn the risks
