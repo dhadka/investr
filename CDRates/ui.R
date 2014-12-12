@@ -32,8 +32,8 @@ shinyUI(fluidPage(
 			conditionalPanel("input.taxable",
 				wellPanel(
 					numericInput("federal", "Federal Marginal Tax Rate", 25, min=0, max=100, step=1),
-					numericInput("state", "State Tax Rate", 3.07, min=0, max=100, step=0.01),
-					numericInput("local", "Local Tax Rate", 2.35, min=0, max=100, step=0.01))),
+					numericInput("state", "State Tax Rate", 3, min=0, max=100, step=0.01),
+					numericInput("local", "Local Tax Rate", 2, min=0, max=100, step=0.01))),
 			br(),
 			h4("Help"),
 			helpText("Based on your selected options, the table to the right
