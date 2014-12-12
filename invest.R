@@ -2,19 +2,19 @@ library(quantmod)
 library(stringr)
 options("getSymbols.warning4.0"=FALSE)
 
-lookupSymbols <- function(symbols, conversion=to.monthly, duration=25*365, from=Sys.Date()-duration, to=Sys.Date(), src="yahoo") {
+lookupSymbols <- function(symbols, conversion=to.monthly, column=Ad, duration=25*365, from=Sys.Date()-duration, to=Sys.Date(), src="yahoo") {
 	result <- list()
 	
 	for (i in 1:length(symbols)) {
 		quote <- getSymbols(symbols[i], from=from, to=to, warnings=FALSE, src=src, auto.assign=FALSE)
 		
-		if (!is.null(data)) {
+		if (!is.null(quote)) {
 			quote <- conversion(quote)
 			result <- append(result, list(list(symbol=symbols[i], quote=quote)))
 		}
 	}
 	
-	merged <- do.call(merge, lapply(result, function(e) Ad(e$quote)))
+	merged <- do.call(merge, lapply(result, function(e) column(e$quote)))
 	merged <- na.locf(merged)
 	colnames(merged) <- sapply(result, function(e) e$symbol)
 	
@@ -122,15 +122,29 @@ to.contribution <- function(result) {
 
 recessions <- data.frame(
 	start=c(
+		as.Date("1953-07-01"),
+		as.Date("1957-08-01"),
+		as.Date("1960-04-01"),
+		as.Date("1969-12-01"),
+		as.Date("1973-11-01"),
+		as.Date("1980-01-01"),
+		as.Date("1981-07-01"),
 		as.Date("1990-07-01"),
 		as.Date("2001-03-01"),
 		as.Date("2007-12-01")),
 	end=c(
+		as.Date("1954-05-31"),
+		as.Date("1958-04-30"),
+		as.Date("1961-02-28"),
+		as.Date("1970-11-30"),
+		as.Date("1975-03-31"),
+		as.Date("1980-07-31"),
+		as.Date("1982-11-30"),
 		as.Date("1991-03-31"),
 		as.Date("2001-11-30"),
 		as.Date("2009-06-30")))
 
-plot.investment <- function(result, conversion=to.percent, show.recessions=TRUE, xlab="Date", ylab="Return", ...) {
+plot.investment <- function(result, conversion=to.percent, show.recessions=TRUE, xlab="Date", ylab="Return", pre.plot=NULL, post.plot=NULL, ...) {
 	if (is.list(result)) {
 		result <- do.call(merge, lapply(result, conversion))
 	} else {
@@ -153,10 +167,39 @@ plot.investment <- function(result, conversion=to.percent, show.recessions=TRUE,
 		rect(to.frac(recessions$start), usr[3], to.frac(recessions$end), usr[4], col="#DDDDDD", border=NA)
 	}
 	
+	if (!is.null(pre.plot)) {
+		pre.plot()
+	}
+	
 	matplot(index(result), result, type='l', add=TRUE, ...)
+	
+	if (!is.null(post.plot)) {
+		post.plot()
+	}
+	
 	grid(nx=NA, ny=NULL)
 	title(xlab=xlab, ylab=ylab)
 	axis(1)
 	axis(2)
 	box()
 }
+
+symbol <- "^GSPC" # S&P 500
+#symbol <- "^IXIC" # Nasdaq Composite
+#symbol <- "^DJI"
+
+gspc <- lookupSymbols(symbol, duration=100*365, conversion=to.daily, column=Cl)
+print(length(gspc))
+print(max(gspc))
+print(gspc[length(gspc)])
+print((max(gspc) - gspc[length(gspc)]) / max(gspc) * 100)
+#print(gspc)
+
+gspcm <- lookupSymbols(symbol, duration=100*365)
+plot.investment(gspcm, conversion=identity, pre.plot=function() {
+	to.frac <- function(date) {
+		as.numeric(format(date, "%Y")) + (as.numeric(format(date, "%m"))-1)/12
+	}
+	
+	rect(to.frac(index(gspcm[1])), gspc[length(gspc)], to.frac(index(gspcm[length(gspcm)])), max(gspc), col="#FF000066", border=NA)
+})

@@ -23,6 +23,7 @@ library(rjson)
 library(XML)
 library(RCurl)
 library(quantmod)
+library(stringr)
 
 createOption <- function(provider, name, term, rate, apy, minimum=0, maximum=1000000000, min.term=0) {
 	list(provider=provider, name=name, term=term, rate=rate, apy=apy, minimum=minimum, maximum=maximum, min.term=min.term)
@@ -36,187 +37,202 @@ options <- list()
 ssl.verifypeer <- FALSE
 
 #GE Capital Bank
-result <- getURL("https://rsge-migrate.fuseservice.com/Rates.asmx/GetDefaultRatesForInstrument?format=json&instrument=%22Savings%20Product%22&accessCode=%22616D6A00-D2BB-48AA-8F09-D8E39FEB245F%22&affiliate=%22GCB%22", ssl.verifypeer=ssl.verifypeer)
-json <- fromJSON(substring(result, 2, nchar(result)-2))
-
-for (entry in json$d$Rates) {
-	options <- append(options, list(createOption(provider="GE Capital", name="GE Capital Savings", term=0, rate=entry$AffiliateAPR, apy=entry$AffiliateAPY, minimum=entry$TierMin, maximum=entry$TierMax)))					 
-}
-
-result <- getURL("https://rsge-migrate.fuseservice.com/Rates.asmx/GetDefaultRatesForInstrument?format=json&instrument=%22CD%22&accessCode=%22616D6A00-D2BB-48AA-8F09-D8E39FEB245F%22&affiliate=%22GCB%22", ssl.verifypeer=ssl.verifypeer)
-json <- fromJSON(substring(result, 2, nchar(result)-2))
-
-for (entry in json$d$Rates) {
-	options <- append(options, list(createOption(provider="GE Capital", name=sprintf("GE Capital %d Month CD", entry$TermLength), term=entry$TermLength, rate=entry$AffiliateAPR, apy=entry$AffiliateAPY, minimum=entry$TierMin, maximum=entry$TierMax)))					 
-}
+tryCatch({
+	result <- getURL("https://rsge-migrate.fuseservice.com/Rates.asmx/GetDefaultRatesForInstrument?format=json&instrument=%22Savings%20Product%22&accessCode=%22616D6A00-D2BB-48AA-8F09-D8E39FEB245F%22&affiliate=%22GCB%22", ssl.verifypeer=ssl.verifypeer, .opts=list(sslversion=3))
+	json <- fromJSON(substring(result, 2, nchar(result)-2))
+	
+	for (entry in json$d$Rates) {
+		options <- append(options, list(createOption(provider="GE Capital", name="GE Capital Savings", term=0, rate=entry$AffiliateAPR, apy=entry$AffiliateAPY, minimum=entry$TierMin, maximum=entry$TierMax)))					 
+	}
+	
+	result <- getURL("https://rsge-migrate.fuseservice.com/Rates.asmx/GetDefaultRatesForInstrument?format=json&instrument=%22CD%22&accessCode=%22616D6A00-D2BB-48AA-8F09-D8E39FEB245F%22&affiliate=%22GCB%22", ssl.verifypeer=ssl.verifypeer, .opts=list(sslversion=3))
+	json <- fromJSON(substring(result, 2, nchar(result)-2))
+	
+	for (entry in json$d$Rates) {
+		options <- append(options, list(createOption(provider="GE Capital", name=sprintf("GE Capital %d Month CD", entry$TermLength), term=entry$TermLength, rate=entry$AffiliateAPR, apy=entry$AffiliateAPY, minimum=entry$TierMin, maximum=entry$TierMax)))					 
+	}
+}, error=function(c) { print(c) })
 
 #Barclays
-result <- getURL("https://www.banking.barclaysus.com/svlt/rates.json", ssl.verifypeer=ssl.verifypeer)
-json <- fromJSON(result)
-
-for (product in json$products) {
-	if (product$type == "3500") {
-		options <- append(options, list(createOption(provider="Barclays", name=sprintf("Barclays %d Month CD", as.numeric(product$term)), term=as.numeric(product$term), rate=as.numeric(product$rate), apy=as.numeric(product$apy))))
-	} else if (product$type == "3000") {
-		options <- append(options, list(createOption(provider="Barclays", name="Barclays Savings", term=0, rate=as.numeric(product$rate), apy=as.numeric(product$apy))))
+tryCatch({
+	result <- getURL("https://www.banking.barclaysus.com/svlt/rates.json", ssl.verifypeer=ssl.verifypeer)
+	json <- fromJSON(result)
+	
+	for (product in json$products) {
+		if (product$type == "3500") {
+			options <- append(options, list(createOption(provider="Barclays", name=sprintf("Barclays %d Month CD", as.numeric(product$term)), term=as.numeric(product$term), rate=as.numeric(product$rate), apy=as.numeric(product$apy))))
+		} else if (product$type == "3000") {
+			options <- append(options, list(createOption(provider="Barclays", name="Barclays Savings", term=0, rate=as.numeric(product$rate), apy=as.numeric(product$apy))))
+		}
 	}
-}
+}, error=function(c) { print(c) })
 
 #Ally
-result <- getURL("http://www.ally.com/rss/rates.xml")
-doc <- xmlParse(result)
-items <- getNodeSet(doc, "//channel/item")
-
-for (item in items) {
-	title <- xmlElementsByTagName(item, "title")[[1]]
+tryCatch({
+	result <- getURL("http://www.ally.com/rss/rates.xml")
+	doc <- xmlParse(result)
+	items <- getNodeSet(doc, "//channel/item")
 	
-	if (xmlValue(title) == "High Yield") {
-		description <- xmlElementsByTagName(item, "description")[[1]]
-		table <- readHTMLTable(xmlValue(description))[[1]]
-
-		for (i in 1:nrow(table)) {
-			term <- unlist(strsplit(as.character(table[i,1]), "\\s"))
-			term <- as.numeric(term[1]) * ifelse(term[2] == "month", 1, 12)
-			rate <- as.character(table[i,2])
-			rate <- as.numeric(substring(rate, 0, nchar(rate)-1)) / 100
-			apy <- as.character(table[i,3])
-			apy <- as.numeric(substring(apy, 0, nchar(apy)-1)) / 100
-			
-			options <- append(options, list(createOption(provider="Ally", name=sprintf("Ally %d Month CD", term), term=term, rate=rate, apy=apy)))
-		}
-	} else if (xmlValue(title) == "Raise Your Rate") {
-		description <- xmlElementsByTagName(item, "description")[[1]]
-		table <- readHTMLTable(xmlValue(description))[[1]]
+	for (item in items) {
+		title <- xmlElementsByTagName(item, "title")[[1]]
 		
-		for (i in 1:nrow(table)) {
-			term <- unlist(strsplit(as.character(table[i,1]), "\\s"))
-			term <- as.numeric(term[1]) * ifelse(term[2] == "month", 1, 12)
-			rate <- as.character(table[i,2])
-			rate <- as.numeric(substring(rate, 0, nchar(rate)-1)) / 100
-			apy <- as.character(table[i,3])
-			apy <- as.numeric(substring(apy, 0, nchar(apy)-1)) / 100
+		if (xmlValue(title) == "High Yield") {
+			description <- xmlElementsByTagName(item, "description")[[1]]
+			table <- readHTMLTable(xmlValue(description))[[1]]
+	
+			for (i in 1:nrow(table)) {
+				term <- unlist(strsplit(as.character(table[i,1]), "\\s"))
+				term <- as.numeric(term[1]) * ifelse(term[2] == "month", 1, 12)
+				rate <- as.character(table[i,2])
+				rate <- as.numeric(substring(rate, 0, nchar(rate)-1)) / 100
+				apy <- as.character(table[i,3])
+				apy <- as.numeric(substring(apy, 0, nchar(apy)-1)) / 100
+				
+				options <- append(options, list(createOption(provider="Ally", name=sprintf("Ally %d Month CD", term), term=term, rate=rate, apy=apy)))
+			}
+		} else if (xmlValue(title) == "Raise Your Rate") {
+			description <- xmlElementsByTagName(item, "description")[[1]]
+			table <- readHTMLTable(xmlValue(description))[[1]]
 			
-			options <- append(options, list(createOption(provider="Ally", name=sprintf("Ally %d Month Raise Your Rate CD", term), term=term, rate=rate, apy=apy)))
-		}
-	} else if (xmlValue(title) == "Online Savings") {
-		description <- xmlElementsByTagName(item, "description")[[1]]
-		table <- readHTMLTable(xmlValue(description))[[1]]
-		
-		for (i in 1:nrow(table)) {
-			rate <- as.character(table[i,1])
-			rate <- as.numeric(substring(rate, 0, nchar(rate)-1)) / 100
-			apy <- as.character(table[i,2])
-			apy <- as.numeric(substring(apy, 0, nchar(apy)-1)) / 100
+			for (i in 1:nrow(table)) {
+				term <- unlist(strsplit(as.character(table[i,1]), "\\s"))
+				term <- as.numeric(term[1]) * ifelse(term[2] == "month", 1, 12)
+				rate <- as.character(table[i,2])
+				rate <- as.numeric(substring(rate, 0, nchar(rate)-1)) / 100
+				apy <- as.character(table[i,3])
+				apy <- as.numeric(substring(apy, 0, nchar(apy)-1)) / 100
+				
+				options <- append(options, list(createOption(provider="Ally", name=sprintf("Ally %d Month Raise Your Rate CD", term), term=term, rate=rate, apy=apy)))
+			}
+		} else if (xmlValue(title) == "Online Savings") {
+			description <- xmlElementsByTagName(item, "description")[[1]]
+			table <- readHTMLTable(xmlValue(description))[[1]]
 			
-			options <- append(options, list(createOption(provider="Ally", name="Ally Savings", term=0, rate=rate, apy=apy)))
+			for (i in 1:nrow(table)) {
+				rate <- as.character(table[i,1])
+				rate <- as.numeric(substring(rate, 0, nchar(rate)-1)) / 100
+				apy <- as.character(table[i,2])
+				apy <- as.numeric(substring(apy, 0, nchar(apy)-1)) / 100
+				
+				options <- append(options, list(createOption(provider="Ally", name="Ally Savings", term=0, rate=rate, apy=apy)))
+			}
 		}
 	}
-}
+}, error=function(c) { print(c) })
 
 #American Express
-result <- getURL("https://personalsavings.americanexpress.com/rates.json", ssl.verifypeer=ssl.verifypeer)
-json <- fromJSON(result)
-
-for (product in json$products) {
-	if (as.numeric(product$type) > 3500 && as.numeric(product$type) < 3600) {
-		options <- append(options, list(createOption(provider="American Express", name=sprintf("American Express %d Month CD", as.numeric(product$term)), term=as.numeric(product$term), rate=as.numeric(product$rate)/100, apy=as.numeric(product$apy)/100)))
-	} else if (product$type == "3200") {
-		options <- append(options, list(createOption(provider="American Express", name="American Express Savings", term=0, rate=as.numeric(product$rate)/100, apy=as.numeric(product$apy)/100)))
+tryCatch({
+	result <- getURL("https://personalsavings.americanexpress.com/rates.json", ssl.verifypeer=ssl.verifypeer)
+	json <- fromJSON(result)
+	
+	for (product in json$products) {
+		if (as.numeric(product$type) > 3500 && as.numeric(product$type) < 3600) {
+			product$term <- sub("M$", "", str_trim(product$term)) # Clean entry ending with "M\r"
+			options <- append(options, list(createOption(provider="American Express", name=sprintf("American Express %d Month CD", as.numeric(product$term)), term=as.numeric(product$term), rate=as.numeric(product$rate)/100, apy=as.numeric(product$apy)/100)))
+		} else if (product$type == "3200") {
+			options <- append(options, list(createOption(provider="American Express", name="American Express Savings", term=0, rate=as.numeric(product$rate)/100, apy=as.numeric(product$apy)/100)))
+		}
 	}
-}
+}, error=function(c) { print(c) })
 
 #EverBank
-result <- getURL("https://www.everbank.com/banking/cd", ssl.verifypeer=ssl.verifypeer)
-table <- readHTMLTable(result)[[1]]
-
-for (i in 1:nrow(table)) {
-	term <- unlist(strsplit(as.character(table[i,1]), "\\s"))
-	term <- as.numeric(term[1]) * ifelse(term[2] == "month", 1, 12)
-	rate <- as.character(table[i,2])
-	rate <- as.numeric(substring(rate, 0, nchar(rate)-1)) / 100
-	apy <- as.character(table[i,3])
-	apy <- as.numeric(substring(apy, 0, nchar(apy)-1)) / 100
+tryCatch({
+	result <- getURL("https://www.everbank.com/banking/cd", ssl.verifypeer=ssl.verifypeer)
+	table <- readHTMLTable(result)[[1]]
 	
-	options <- append(options, list(createOption(provider="EverBank", name=sprintf("EverBank %d Month CD", term), term=term, rate=rate, apy=apy, minimum=1500)))
-}
-
-#Synchrony Optimizer Plus
-result <- getURL("https://myoptimizerplus.com/banking/products/cd/index.htm", ssl.verifypeer=ssl.verifypeer)
-table <- readHTMLTable(result)[[1]]
-
-for (j in 2:ncol(table)) {
-	amount <- unlist(strsplit(colnames(table)[j], "-", fixed=TRUE))
-	
-	if (length(amount) == 1) {
-		minimum <- as.numeric(gsub("[$,+]", "", amount[1]))
-		maximum <- 1000000
-	} else {
-		minimum <- as.numeric(gsub("[$,+]", "", amount[1]))
-		maximum <- as.numeric(gsub("[$,+]", "", amount[2]))
-	}
-	
-	for (i in 2:nrow(table)) {
+	for (i in 1:nrow(table)) {
 		term <- unlist(strsplit(as.character(table[i,1]), "\\s"))
-		term <- as.numeric(term[1]) * ifelse(tolower(term[2]) == "month", 1, 12)
-		apy <- as.character(table[i,j])
+		term <- as.numeric(term[1]) * ifelse(term[2] == "month", 1, 12)
+		rate <- as.character(table[i,2])
+		rate <- as.numeric(substring(rate, 0, nchar(rate)-1)) / 100
+		apy <- as.character(table[i,3])
 		apy <- as.numeric(substring(apy, 0, nchar(apy)-1)) / 100
 		
-		options <- append(options, list(createOption(provider="Synchrony", name=sprintf("Synchrony %d Month CD", term), term=term, rate=to.rate(apy, 365), apy=apy, minimum=minimum, maximum=maximum)))
+		options <- append(options, list(createOption(provider="EverBank", name=sprintf("EverBank %d Month CD", term), term=term, rate=rate, apy=apy, minimum=1500)))
 	}
-}
+}, error=function(c) { print(c) })
 
-result <- getURL("https://myoptimizerplus.com/banking/products/high-yield-saving/index.htm", ssl.verifypeer=ssl.verifypeer)
-table <- readHTMLTable(result)[[1]]
-
-for (i in 2:nrow(table)) {
-	amount <- unlist(strsplit(as.character(table[i,1]), "-", fixed=TRUE))
+#Synchrony Optimizer Plus
+tryCatch({
+	result <- getURL("https://myoptimizerplus.com/banking/products/cd/index.htm", ssl.verifypeer=ssl.verifypeer)
+	table <- readHTMLTable(result)[[1]]
 	
-	if (length(amount) == 1) {
-		if (substring(amount[1], 0, 6) == "Up to ") {
-			minimum <- 0
-			maximum <- as.numeric(gsub("[$,+]", "", substring(amount[1], 6, nchar(amount[1]))))
-		} else {
+	for (j in 2:ncol(table)) {
+		amount <- unlist(strsplit(colnames(table)[j], "-", fixed=TRUE))
+		
+		if (length(amount) == 1) {
 			minimum <- as.numeric(gsub("[$,+]", "", amount[1]))
 			maximum <- 1000000
+		} else {
+			minimum <- as.numeric(gsub("[$,+]", "", amount[1]))
+			maximum <- as.numeric(gsub("[$,+]", "", amount[2]))
 		}
-	} else {
-		minimum <- as.numeric(gsub("[$,+]", "", amount[1]))
-		maximum <- as.numeric(gsub("[$,+]", "", amount[2]))
+		
+		for (i in 2:nrow(table)) {
+			term <- unlist(strsplit(as.character(table[i,1]), "\\s"))
+			term <- as.numeric(term[1]) * ifelse(tolower(term[2]) == "month", 1, 12)
+			apy <- as.character(table[i,j])
+			apy <- as.numeric(substring(apy, 0, nchar(apy)-1)) / 100
+			
+			options <- append(options, list(createOption(provider="Synchrony", name=sprintf("Synchrony %d Month CD", term), term=term, rate=to.rate(apy, 365), apy=apy, minimum=minimum, maximum=maximum)))
+		}
 	}
+
+	result <- getURL("https://myoptimizerplus.com/banking/products/high-yield-saving/index.htm", ssl.verifypeer=ssl.verifypeer)
+	table <- readHTMLTable(result)[[1]]
 	
-	apy <- as.character(table[i,2])
-	apy <- as.numeric(substring(apy, 0, nchar(apy)-1)) / 100
-	
-	options <- append(options, list(createOption(provider="Synchrony", name=sprintf("Synchrony Savings", term), term=0, rate=to.rate(apy, 365), apy=apy, minimum=minimum, maximum=maximum)))
-}
+	for (i in 2:nrow(table)) {
+		amount <- unlist(strsplit(as.character(table[i,1]), "-", fixed=TRUE))
+		
+		if (length(amount) == 1) {
+			if (substring(amount[1], 0, 6) == "Up to ") {
+				minimum <- 0
+				maximum <- as.numeric(gsub("[$,+]", "", substring(amount[1], 6, nchar(amount[1]))))
+			} else {
+				minimum <- as.numeric(gsub("[$,+]", "", amount[1]))
+				maximum <- 1000000
+			}
+		} else {
+			minimum <- as.numeric(gsub("[$,+]", "", amount[1]))
+			maximum <- as.numeric(gsub("[$,+]", "", amount[2]))
+		}
+		
+		apy <- as.character(table[i,2])
+		apy <- as.numeric(substring(apy, 0, nchar(apy)-1)) / 100
+		
+		options <- append(options, list(createOption(provider="Synchrony", name=sprintf("Synchrony Savings", term), term=0, rate=to.rate(apy, 365), apy=apy, minimum=minimum, maximum=maximum)))
+	}
+}, error=function(c) { print(c) })
 
 #TreasuryDirect
-result <- getURL("https://www.treasurydirect.gov/indiv/research/indepth/ibonds/res_ibonds_iratesandterms.htm", ssl.verifypeer=ssl.verifypeer)
-tables <- readHTMLTable(result)
-
-fixed.rate <- as.character(tables[[3]][1,2])
-fixed.rate <- as.numeric(substring(fixed.rate, 0, nchar(fixed.rate)-1)) / 100
-inflation.rate <- as.character(tables[[4]][1,2])
-inflation.rate <- as.numeric(substring(inflation.rate, 0, nchar(inflation.rate)-1)) / 100
-composite.rate <- fixed.rate + 2*inflation.rate + fixed.rate*inflation.rate
-options <- append(options, list(createOption(provider="TreasuryDirect", name="US I Savings Bond", term=60, rate=composite.rate, apy=composite.rate, min.term=12, minimum=25)))
-
-result <- getURL("https://www.treasurydirect.gov/TA_WS/securities/auctioned?pagesize=20&type=Note&format=jsonp&callback=?")
-json <- fromJSON(substring(result, 4, nchar(result)-2))
-seen.terms <- vector()
-
-for (entry in json) {
-	term <- entry$term
-	yield <- as.numeric(entry$highYield) / 100
-	minimum <- as.numeric(entry$minimumToIssue)
-	term.months <- unlist(strsplit(term, "-", fixed=TRUE))[1]
-	term.months <- as.numeric(term.months)*12
+tryCatch({
+	result <- getURL("https://www.treasurydirect.gov/indiv/research/indepth/ibonds/res_ibonds_iratesandterms.htm", ssl.verifypeer=ssl.verifypeer)
+	tables <- readHTMLTable(result)
 	
-	if (!(term %in% seen.terms)) {
-		seen.terms <- append(seen.terms, term)
-		options <- append(options, list(createOption(provider="TreasuryDirect", name=sprintf("%s US Treasury Note", term), term=term.months, rate=yield, apy=yield, min.term=term.months, minimum=minimum)))
+	fixed.rate <- as.character(tables[[3]][1,2])
+	fixed.rate <- as.numeric(substring(fixed.rate, 0, nchar(fixed.rate)-1)) / 100
+	inflation.rate <- as.character(tables[[4]][1,2])
+	inflation.rate <- as.numeric(substring(inflation.rate, 0, nchar(inflation.rate)-1)) / 100
+	composite.rate <- fixed.rate + 2*inflation.rate + fixed.rate*inflation.rate
+	options <- append(options, list(createOption(provider="TreasuryDirect", name="US I Savings Bond", term=60, rate=composite.rate, apy=composite.rate, min.term=12, minimum=25)))
+	
+	result <- getURL("https://www.treasurydirect.gov/TA_WS/securities/auctioned?pagesize=20&type=Note&format=jsonp&callback=?")
+	json <- fromJSON(substring(result, 4, nchar(result)-2))
+	seen.terms <- vector()
+	
+	for (entry in json) {
+		term <- entry$term
+		yield <- as.numeric(entry$highYield) / 100
+		minimum <- as.numeric(entry$minimumToIssue)
+		term.months <- unlist(strsplit(term, "-", fixed=TRUE))[1]
+		term.months <- as.numeric(term.months)*12
+		
+		if (!(term %in% seen.terms)) {
+			seen.terms <- append(seen.terms, term)
+			options <- append(options, list(createOption(provider="TreasuryDirect", name=sprintf("%s US Treasury Note", term), term=term.months, rate=yield, apy=yield, min.term=term.months, minimum=minimum)))
+		}
 	}
-}
+}, error=function(c) { print(c) })
 
 # Convert to data frame
 options <- data.frame(
